@@ -1623,7 +1623,7 @@ namespace BizHawk.Client.EmuHawk
 			}
 		}		
 
-		public void FlushSaveRAM(bool autosave = false)
+		public bool FlushSaveRAM(bool autosave = false)
 		{
 			if (Emulator.HasSaveRam())
 			{
@@ -1644,7 +1644,15 @@ namespace BizHawk.Client.EmuHawk
 				var backupFile = new FileInfo(backupPath);
 				if (file.Directory != null && !file.Directory.Exists)
 				{
-					file.Directory.Create();
+                    try
+                    {
+                        file.Directory.Create();
+                    }
+                    catch
+                    {
+                        GlobalWin.OSD.AddMessage("Unable to flush SaveRAM to: " + newFile.Directory);                        
+                        return false;
+                    }
 				}
 
 				var writer = new BinaryWriter(new FileStream(newPath, FileMode.Create, FileAccess.Write));
@@ -1675,6 +1683,8 @@ namespace BizHawk.Client.EmuHawk
 
 				newFile.MoveTo(path);
 			}
+
+            return true;
 		}
 
 		private void RewireSound()
@@ -1725,6 +1735,7 @@ namespace BizHawk.Client.EmuHawk
 			neoGeoPocketToolStripMenuItem.Visible = false;
 			pCFXToolStripMenuItem.Visible = false;
             zXSpectrumToolStripMenuItem.Visible = false;
+            amstradCPCToolStripMenuItem.Visible = false;
 
 			switch (system)
 			{
@@ -1824,6 +1835,14 @@ namespace BizHawk.Client.EmuHawk
 					break;
                 case "ZXSpectrum":
                     zXSpectrumToolStripMenuItem.Visible = true;
+#if DEBUG
+                    ZXSpectrumExportSnapshotMenuItemMenuItem.Visible = true;
+#else
+                    ZXSpectrumExportSnapshotMenuItemMenuItem.Visible = false;
+#endif
+                    break;
+                case "AmstradCPC":
+                    amstradCPCToolStripMenuItem.Visible = true;
                     break;
 			}
 		}
@@ -2086,7 +2105,7 @@ namespace BizHawk.Client.EmuHawk
 				if (VersionInfo.DeveloperBuild)
 				{
 					return FormatFilter(
-						"Rom Files", "*.nes;*.fds;*.unf;*.sms;*.gg;*.sg;*.pce;*.sgx;*.bin;*.smd;*.rom;*.a26;*.a78;*.lnx;*.m3u;*.cue;*.ccd;*.mds;*.exe;*.gb;*.gbc;*.gba;*.gen;*.md;*.32x;*.col;*.int;*.smc;*.sfc;*.prg;*.d64;*.g64;*.crt;*.tap;*.sgb;*.xml;*.z64;*.v64;*.n64;*.ws;*.wsc;*.dsk;*.do;*.po;*.vb;*.ngp;*.ngc;*.psf;*.minipsf;*.nsf;*.tzx;*.pzx;*.csw;*.wav;%ARCH%",
+						"Rom Files", "*.nes;*.fds;*.unf;*.sms;*.gg;*.sg;*.pce;*.sgx;*.bin;*.smd;*.rom;*.a26;*.a78;*.lnx;*.m3u;*.cue;*.ccd;*.mds;*.exe;*.gb;*.gbc;*.gba;*.gen;*.md;*.32x;*.col;*.int;*.smc;*.sfc;*.prg;*.d64;*.g64;*.crt;*.tap;*.sgb;*.xml;*.z64;*.v64;*.n64;*.ws;*.wsc;*.dsk;*.do;*.po;*.vb;*.ngp;*.ngc;*.psf;*.minipsf;*.nsf;*.tzx;*.pzx;*.csw;*.wav;*.cdt;%ARCH%",
 						"Music Files", "*.psf;*.minipsf;*.sid;*.nsf",
 						"Disc Images", "*.cue;*.ccd;*.mds;*.m3u",
 						"NES", "*.nes;*.fds;*.unf;*.nsf;%ARCH%",
@@ -2115,6 +2134,7 @@ namespace BizHawk.Client.EmuHawk
 						"Virtual Boy", "*.vb;%ARCH%",
 						"Neo Geo Pocket", "*.ngp;*.ngc;%ARCH%",
                         "Sinclair ZX Spectrum", "*.tzx;*.tap;*.dsk;*.pzx;*.csw;*.wav;%ARCH%",
+                        "Amstrad CPC", "*.cdt;*.dsk;%ARCH%",
 						"All Files", "*.*");
 				}
 
@@ -2766,9 +2786,14 @@ namespace BizHawk.Client.EmuHawk
             {
                 var core = (Emulation.Cores.Computers.SinclairSpectrum.ZXSpectrum)Emulator as Emulation.Cores.Computers.SinclairSpectrum.ZXSpectrum;
                 CoreNameStatusBarButton.ToolTipText = core.GetMachineType();
+            }
 
-            }			
-		}
+            if (Emulator.SystemId == "AmstradCPC")
+            {
+                var core = (Emulation.Cores.Computers.AmstradCPC.AmstradCPC)Emulator as Emulation.Cores.Computers.AmstradCPC.AmstradCPC;
+                CoreNameStatusBarButton.ToolTipText = core.GetMachineType();
+            }
+        }
 
 		private void ToggleKeyPriority()
 		{
@@ -3172,12 +3197,6 @@ namespace BizHawk.Client.EmuHawk
 				else
 				{
 					aw = new AudioStretcher(aw);
-				}
-
-				if (unattended && Global.Config.TargetZoomFactor > 1)
-				{
-					_avwriterResizew = Global.Config.TargetZoomFactor * _currentVideoProvider.BufferWidth;
-					_avwriterResizeh = Global.Config.TargetZoomFactor * _currentVideoProvider.BufferHeight;
 				}
 
 				aw.SetMovieParameters(Emulator.VsyncNumerator(), Emulator.VsyncDenominator());
@@ -3859,7 +3878,16 @@ namespace BizHawk.Client.EmuHawk
 			}
 			else if (Emulator.HasSaveRam() && Emulator.AsSaveRam().SaveRamModified)
 			{
-				FlushSaveRAM();
+				if (!FlushSaveRAM())
+                {
+                    var msgRes = MessageBox.Show("Failed flushing the game's Save RAM to your disk.\nClose without flushing Save RAM?",
+                            "Directory IO Error", MessageBoxButtons.YesNo, MessageBoxIcon.Error);
+
+                    if (msgRes != DialogResult.Yes)
+                    {
+                        return;
+                    }
+                }
 			}
 
 			StopAv();
@@ -4355,7 +4383,6 @@ namespace BizHawk.Client.EmuHawk
 		{
 			GenericCoreConfig.DoDialog(this, "PC-FX Settings");
 		}
-                
 
         private bool Rewind(ref bool runFrame, long currentTimestamp, out bool returnToRecording)
 		{
